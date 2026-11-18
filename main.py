@@ -106,14 +106,7 @@ def manual_mode():
     print(f"필터 B 연산 시간: {time_b:.6f} ms")
     print(f"판정 결과: {result}")
 
-    print("\n=== 3×3 성능 분석 ===")
-    avg_a = average_mac_time(pattern, filter_a)
-    avg_b = average_mac_time(pattern, filter_b)
-
-    print("반복 측정: 10회")
-    print("연산 횟수: 9회 (3×3)")
-    print(f"필터 A 평균 시간: {avg_a:.6f} ms")
-    print(f"필터 B 평균 시간: {avg_b:.6f} ms")
+    performance_analysis(pattern_3=pattern, filter_3=filter_a)
 
 
 # 라벨 정규화
@@ -147,6 +140,46 @@ def validate_matrix(matrix, size, name):
             raise ValueError(f"{name}: {i}행에 숫자가 아닌 값이 있습니다.")
 
 
+# 크기별 MAC 성능 분석
+def performance_analysis(data=None, pattern_3=None, filter_3=None):
+    cross_3 = [
+        [0, 1, 0],
+        [1, 1, 1],
+        [0, 1, 0]
+    ]
+
+    samples = {
+        3: (
+            pattern_3 if pattern_3 is not None else cross_3,
+            filter_3 if filter_3 is not None else cross_3
+        )
+    }
+
+    if data is not None:
+        for size in (5, 13, 25):
+            try:
+                pattern = data["patterns"][f"size_{size}_1"]["input"]
+                filter_data = data["filters"][f"size_{size}"]["cross"]
+
+                validate_matrix(pattern, size, "패턴")
+                validate_matrix(filter_data, size, "Cross 필터")
+
+                samples[size] = (pattern, filter_data)
+
+            except (KeyError, ValueError, TypeError) as error:
+                print(f"{size}×{size} 성능 분석 제외: {error}")
+
+    print("\n=== 크기별 MAC 성능 분석 ===")
+    print("반복 측정: 각 크기별 10회")
+    print(f"{'크기':<10} {'평균 시간(ms)':>16} {'연산 횟수(N²)':>16}")
+
+    for size, (pattern, filter_data) in samples.items():
+        avg_time = average_mac_time(pattern, filter_data)
+        size_text = f"{size}×{size}"
+
+        print(f"{size_text:<10} {avg_time:>16.6f} {size * size:>16}")
+
+
 # JSON 분석 모드
 def json_mode():
     print("\n=== JSON 데이터 분석 모드 ===")
@@ -172,11 +205,15 @@ def json_mode():
         print("JSON 스키마 오류: filters와 patterns는 객체여야 합니다.")
         return
 
+    # 7단계: 테스트 집계 변수
+    total_tests = len(patterns)
+    passed_tests = 0
+    failed_cases = []
+
     for case_id, item in patterns.items():
         print(f"\n[{case_id}]")
 
         try:
-            # 패턴 키에서 크기 추출
             match = re.fullmatch(r"size_(\d+)_(\d+)", case_id)
 
             if not match:
@@ -195,7 +232,6 @@ def json_mode():
 
             validate_matrix(pattern, size, "패턴")
 
-            # 크기에 맞는 필터 선택
             filter_group = filters.get(f"size_{size}")
 
             if not isinstance(filter_group, dict):
@@ -215,7 +251,6 @@ def json_mode():
             if "Cross" not in normalized_filters or "X" not in normalized_filters:
                 raise ValueError("Cross/X 필터가 모두 필요합니다.")
 
-            # MAC 연산
             score_cross, time_cross = timed_mac(
                 pattern, normalized_filters["Cross"]
             )
@@ -224,22 +259,39 @@ def json_mode():
                 pattern, normalized_filters["X"]
             )
 
-            # 판정 및 정답 비교
-            result = decide_result(
-                score_cross, score_x, "Cross", "X"
-            )
-
+            result = decide_result(score_cross, score_x, "Cross", "X")
             status = "PASS" if result == expected else "FAIL"
 
             print(f"Cross 점수: {score_cross:.6f} ({time_cross:.6f} ms)")
             print(f"X 점수: {score_x:.6f} ({time_x:.6f} ms)")
             print(f"판정: {result} / expected: {expected} → {status}")
 
-            if status == "FAIL":
-                print(f"실패 사유: 예상 {expected}, 실제 {result}")
+            if status == "PASS":
+                passed_tests += 1
+            else:
+                reason = f"예상 {expected}, 실제 {result}"
+                failed_cases.append((case_id, reason))
+                print(f"실패 사유: {reason}")
 
-        except (ValueError, TypeError) as error:
-            print(f"FAIL - 실패 사유: {error}")
+        except (ValueError, TypeError, KeyError) as error:
+            reason = str(error)
+            failed_cases.append((case_id, reason))
+            print(f"FAIL - 실패 사유: {reason}")
+
+    performance_analysis(data=data)
+
+    # 7단계: 전체 결과 요약
+    print("\n=== 전체 테스트 결과 요약 ===")
+    print(f"전체 테스트 수: {total_tests}")
+    print(f"통과 수(PASS): {passed_tests}")
+    print(f"실패 수(FAIL): {len(failed_cases)}")
+
+    if failed_cases:
+        print("\n실패 케이스 목록:")
+        for case_id, reason in failed_cases:
+            print(f"- {case_id}: {reason}")
+    else:
+        print("모든 테스트를 통과했습니다.")
 
 
 # 메인 메뉴
