@@ -5,7 +5,7 @@ from pathlib import Path
 from time import perf_counter_ns
 
 
-# MAC 연산 함수
+# MAC 연산 함수 (2차원 배열)
 def calculate_mac(pattern, filter_data):
     score = 0.0
     size = len(pattern)
@@ -13,6 +13,21 @@ def calculate_mac(pattern, filter_data):
     for i in range(size):
         for j in range(size):
             score += pattern[i][j] * filter_data[i][j]
+
+    return score
+
+
+# 9단계 보너스: 2차원 배열을 1차원 배열로 변환
+def flatten_matrix(matrix):
+    return [value for row in matrix for value in row]
+
+
+# 9단계 보너스: 1차원 배열 MAC 연산
+def calculate_mac_flat(pattern_flat, filter_flat):
+    score = 0.0
+
+    for i in range(len(pattern_flat)):
+        score += pattern_flat[i] * filter_flat[i]
 
     return score
 
@@ -29,7 +44,30 @@ def decide_result(score_a, score_b, label_a="A", label_b="B"):
         return label_b
 
 
-# 3×3 배열 입력
+# 9단계 보너스: 십자가(Cross) / X 패턴 자동 생성
+def generate_pattern(size, label):
+    center_left = (size - 1) // 2
+    center_right = size // 2
+    matrix = []
+
+    for i in range(size):
+        row = []
+        for j in range(size):
+            if label == "Cross":
+                filled = (i in (center_left, center_right)
+                          or j in (center_left, center_right))
+            elif label == "X":
+                filled = (i == j or i + j == size - 1)
+            else:
+                raise ValueError("지원하지 않는 패턴 라벨입니다.")
+
+            row.append(1.0 if filled else 0.0)
+        matrix.append(row)
+
+    return matrix
+
+
+# 3x3 배열 입력
 def input_matrix(name):
     matrix = []
     print(f"\n{name}를 입력하세요. (3×3)")
@@ -68,7 +106,7 @@ def timed_mac(pattern, filter_data):
     return score, (end - start) / 1_000_000
 
 
-# 평균 MAC 연산 시간 측정
+# 평균 MAC 연산 시간 측정 (10회)
 def average_mac_time(pattern, filter_data):
     repeat = 10
     total_ns = 0
@@ -76,6 +114,20 @@ def average_mac_time(pattern, filter_data):
     for _ in range(repeat):
         start = perf_counter_ns()
         calculate_mac(pattern, filter_data)
+        end = perf_counter_ns()
+        total_ns += end - start
+
+    return total_ns / repeat / 1_000_000
+
+
+# 9단계 보너스: 1차원 MAC 평균 연산 시간 (10회)
+def average_mac_time_flat(pattern_flat, filter_flat):
+    repeat = 10
+    total_ns = 0
+
+    for _ in range(repeat):
+        start = perf_counter_ns()
+        calculate_mac_flat(pattern_flat, filter_flat)
         end = perf_counter_ns()
         total_ns += end - start
 
@@ -93,7 +145,27 @@ def manual_mode():
     show_matrix("필터 A", filter_a)
     show_matrix("필터 B", filter_b)
 
-    pattern = input_matrix("패턴")
+    # 9단계 보너스: 직접 입력 또는 자동 생성 패턴 선택
+    print("\n패턴 입력 방식을 선택하세요.")
+    print("1. 직접 입력")
+    print("2. 십자가(Cross) 자동 생성")
+    print("3. X 자동 생성")
+
+    while True:
+        pattern_choice = input("선택: ").strip()
+        if pattern_choice == "1":
+            pattern = input_matrix("패턴")
+            break
+        elif pattern_choice == "2":
+            pattern = generate_pattern(3, "Cross")
+            break
+        elif pattern_choice == "3":
+            pattern = generate_pattern(3, "X")
+            break
+        else:
+            print("입력 오류: 1, 2, 3 중 선택하세요.")
+
+    show_matrix("입력 패턴", pattern)
 
     score_a, time_a = timed_mac(pattern, filter_a)
     score_b, time_b = timed_mac(pattern, filter_b)
@@ -140,13 +212,33 @@ def validate_matrix(matrix, size, name):
             raise ValueError(f"{name}: {i}행에 숫자가 아닌 값이 있습니다.")
 
 
+# 9단계 보너스: 같은 데이터로 2차원 / 1차원 MAC 성능 비교
+def show_performance_table(samples):
+    print("\n=== 크기별 MAC 성능 분석 (2D vs 1D) ===")
+    print("반복 측정: 각 방식 10회 (배열 변환 시간 제외)")
+    print(f"{'크기':<8} {'2D 평균(ms)':>14} {'1D 평균(ms)':>14} {'연산 횟수(N²)':>15} {'점수 일치':>9}")
+
+    for size, (pattern, filter_data) in samples.items():
+        flat_pattern = flatten_matrix(pattern)
+        flat_filter = flatten_matrix(filter_data)
+
+        score_2d = calculate_mac(pattern, filter_data)
+        score_1d = calculate_mac_flat(flat_pattern, flat_filter)
+        same_score = abs(score_2d - score_1d) < 1e-9
+
+        avg_2d = average_mac_time(pattern, filter_data)
+        avg_1d = average_mac_time_flat(flat_pattern, flat_filter)
+
+        size_text = f"{size}x{size}"
+        match_text = "YES" if same_score else "NO"
+        print(f"{size_text:<8} {avg_2d:>14.6f} {avg_1d:>14.6f} {size * size:>15} {match_text:>9}")
+
+    print("※ 1D 방식이 항상 더 빠른 것은 아닙니다. 실측 시간을 비교하세요.")
+
+
 # 크기별 MAC 성능 분석
 def performance_analysis(data=None, pattern_3=None, filter_3=None):
-    cross_3 = [
-        [0, 1, 0],
-        [1, 1, 1],
-        [0, 1, 0]
-    ]
+    cross_3 = generate_pattern(3, "Cross")
 
     samples = {
         3: (
@@ -163,21 +255,38 @@ def performance_analysis(data=None, pattern_3=None, filter_3=None):
 
                 validate_matrix(pattern, size, "패턴")
                 validate_matrix(filter_data, size, "Cross 필터")
-
                 samples[size] = (pattern, filter_data)
 
             except (KeyError, ValueError, TypeError) as error:
                 print(f"{size}×{size} 성능 분석 제외: {error}")
 
-    print("\n=== 크기별 MAC 성능 분석 ===")
-    print("반복 측정: 각 크기별 10회")
-    print(f"{'크기':<10} {'평균 시간(ms)':>16} {'연산 횟수(N²)':>16}")
+    show_performance_table(samples)
 
-    for size, (pattern, filter_data) in samples.items():
-        avg_time = average_mac_time(pattern, filter_data)
-        size_text = f"{size}×{size}"
 
-        print(f"{size_text:<10} {avg_time:>16.6f} {size * size:>16}")
+# 9단계 보너스: 패턴 생성기 독립 실행 모드
+def pattern_generator_mode():
+    print("\n=== 패턴 자동 생성기 ===")
+
+    while True:
+        raw_size = input("크기 N을 입력하세요 (3~25): ").strip()
+        try:
+            size = int(raw_size)
+        except ValueError:
+            print("입력 오류: 정수를 입력하세요.")
+            continue
+
+        if 3 <= size <= 25:
+            break
+        print("입력 오류: 3 이상 25 이하의 정수를 입력하세요.")
+
+    cross = generate_pattern(size, "Cross")
+    x_pattern = generate_pattern(size, "X")
+
+    show_matrix(f"Cross 패턴 ({size}×{size})", cross)
+    show_matrix(f"X 패턴 ({size}×{size})", x_pattern)
+
+    # 자동 생성 패턴을 바로 성능 분석에도 재활용
+    show_performance_table({size: (cross, cross)})
 
 
 # JSON 분석 모드
@@ -205,7 +314,6 @@ def json_mode():
         print("JSON 스키마 오류: filters와 patterns는 객체여야 합니다.")
         return
 
-    # 7단계: 테스트 집계 변수
     total_tests = len(patterns)
     passed_tests = 0
     failed_cases = []
@@ -231,14 +339,12 @@ def json_mode():
                 raise ValueError("expected 라벨이 올바르지 않습니다.")
 
             validate_matrix(pattern, size, "패턴")
-
             filter_group = filters.get(f"size_{size}")
 
             if not isinstance(filter_group, dict):
                 raise ValueError(f"size_{size} 필터가 없습니다.")
 
             normalized_filters = {}
-
             for key, matrix in filter_group.items():
                 label = normalize_label(key)
 
@@ -254,7 +360,6 @@ def json_mode():
             score_cross, time_cross = timed_mac(
                 pattern, normalized_filters["Cross"]
             )
-
             score_x, time_x = timed_mac(
                 pattern, normalized_filters["X"]
             )
@@ -280,7 +385,6 @@ def json_mode():
 
     performance_analysis(data=data)
 
-    # 7단계: 전체 결과 요약
     print("\n=== 전체 테스트 결과 요약 ===")
     print(f"전체 테스트 수: {total_tests}")
     print(f"통과 수(PASS): {passed_tests}")
@@ -300,22 +404,22 @@ def main():
         print("\n=== Mini NPU 시뮬레이터 ===")
         print("1. 사용자 입력 모드 (3×3)")
         print("2. JSON 데이터 분석 모드")
+        print("3. 패턴 자동 생성기 (보너스)")
         print("0. 종료")
 
         choice = input("모드를 선택하세요: ").strip()
 
         if choice == "1":
             manual_mode()
-
         elif choice == "2":
             json_mode()
-
+        elif choice == "3":
+            pattern_generator_mode()
         elif choice == "0":
             print("프로그램을 종료합니다.")
             break
-
         else:
-            print("입력 오류: 0, 1, 2 중 선택하세요.")
+            print("입력 오류: 0, 1, 2, 3 중 선택하세요.")
 
 
 if __name__ == "__main__":
